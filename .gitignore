@@ -2,8 +2,6 @@ venv/
 __pycache__/
 *.pyc
 static/uploads/
-*.pth
-*.pt
 datasets/
 train2017/
 test2017/

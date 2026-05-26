@@ -36,8 +36,8 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 encoder = VGGEncoder("vgg_normalised.pth").to(device)
 decoder = Decoder().to(device)
 state_dict = torch.load(
-    r'C:\Users\shaurya mishra\OneDrive\Desktop\NST\experiment\final_exp\decoder_final.pth',
-    weights_only=True
+    'experiment/final_exp/decoder_final.pth',
+    map_location=device
 )
 
 # Rename keys from net -> decoder

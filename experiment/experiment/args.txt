@@ -1,0 +1,11 @@
+content_dir : C:\Users\shaurya mishra\OneDrive\Desktop\NST\content_data
+style_dir : C:\Users\shaurya mishra\OneDrive\Desktop\NST\style_data
+vgg : C:\Users\shaurya mishra\OneDrive\Desktop\NST\vgg_normalised.pth
+experiment : experiment
+final_size : 256
+content_size : 512
+style_size : 512
+crop : True
+batch_size : 4
+lr : 0.001
+lr_decay : 5e-05

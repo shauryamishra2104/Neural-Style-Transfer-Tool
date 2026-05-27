@@ -1,48 +1,28 @@
-import os
 import torch
-from flask import Flask, render_template, request, redirect,url_for,send_from_directory
-from flask_wtf import FlaskForm
-from flask_bootstrap import Bootstrap
-from werkzeug.utils import secure_filename
-from wtforms import FileField, SubmitField, FloatField, HiddenField
-from wtforms.validators import InputRequired
+torch.set_num_threads(1)
+
+import gradio as gr
 from PIL import Image
 from torchvision import transforms
-import io
 
-# import your existing AdaIN code
-from utils.models import VGGEncoder,Decoder
-from utils.utils import adaptive_instance_normalization,calc_mean_std
+from utils.models import VGGEncoder, Decoder
+from utils.utils import adaptive_instance_normalization
 
+# Device
+device = torch.device("cpu")
 
-app= Flask(__name__)
-app.config['SECRET_KEY'] = 'shaurya'
-app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['ALLOWED_EXTENSIONS'] = {'png','jpg','jpeg'}
-Bootstrap(app)
-
-os.makedirs(app.config['UPLOAD_FOLDER'],exist_ok=True)
-
-class UploadForm(FlaskForm):
-    content = FileField('Content Image')
-    style = FileField('Style Image')
-    content_path = HiddenField()
-    style_path  = HiddenField()
-    alpha = FloatField('Alpha', default=1.0)
-    submit = SubmitField('Transfer Style')
-
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+# Load Models
 encoder = VGGEncoder("vgg_normalised.pth").to(device)
 decoder = Decoder().to(device)
+
 state_dict = torch.load(
-    'experiment/final_exp/decoder_final.pth',
+    "experiment/final_exp/decoder_final.pth",
     map_location=device,
     weights_only=True
 )
 
-
 new_state_dict = {}
+
 for k, v in state_dict.items():
     new_key = k.replace("net", "decoder")
     new_state_dict[new_key] = v
@@ -52,112 +32,75 @@ decoder.load_state_dict(new_state_dict)
 encoder.eval()
 decoder.eval()
 
-def allowed_file(filename):
-    return '.' in filename and \
-        filename.rsplit('.',1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+encoder = encoder.float()
+decoder = decoder.float()
 
 
-def style_transfer(content_image, style_image,encoder,decoder,alpha,device):
+def style_transfer(content_image, style_image, alpha):
+
     content_transform = transforms.Compose([
-        transforms.Resize(128),
+        transforms.Resize((128, 128)),
         transforms.ToTensor()
     ])
 
     style_transform = transforms.Compose([
-        transforms.Resize(128),
+        transforms.Resize((128, 128)),
         transforms.ToTensor()
     ])
-    
-    content_image = content_transform(content_image).unsqueeze(0).to(device)
-    style_image = style_transform(style_image).unsqueeze(0).to(device)
+
+    content_tensor = content_transform(content_image).unsqueeze(0).to(device)
+    style_tensor = style_transform(style_image).unsqueeze(0).to(device)
 
     with torch.inference_mode():
-        content_feats = encoder(content_image,True)
-        style_feats = encoder(style_image,True)
 
-        stylized_feats = adaptive_instance_normalization(content_feats, style_feats)
-        
-        stylized_feats = alpha * stylized_feats + (1-alpha) * content_feats
+        content_feats = encoder(content_tensor, True)
+        style_feats = encoder(style_tensor, True)
+
+        stylized_feats = adaptive_instance_normalization(
+            content_feats,
+            style_feats
+        )
+
+        stylized_feats = (
+            alpha * stylized_feats
+            + (1 - alpha) * content_feats
+        )
 
         stylized_image = decoder(stylized_feats)
+
+        output = stylized_image.squeeze().cpu().clamp(0, 1)
+
+        output_image = transforms.ToPILImage()(output)
 
         del content_feats
         del style_feats
         del stylized_feats
-    
-    return stylized_image
+        del stylized_image
 
-def save_image(image,path):
-    image = image.cpu()
-    image = image.squeeze()
-    image = image.clamp(0,1)
-    image = transforms.ToPILImage()(image)
-    image.save(path)
+    return output_image
 
 
-
-@app.route('/',methods=['GET','POST'])
-def index():
-    form = UploadForm()
-    result_image = None
-    result_filename = None
-    content_filename = form.content_path.data
-    style_filename = form.style_path.data
-    error = None
-    if form.validate_on_submit():
-        if form.content.data and form.content.data.filename:
-            if allowed_file(form.content.data.filename):
-                content_filename = secure_filename(form.content.data.filename)
-                form.content.data.save(os.path.join(app.config['UPLOAD_FOLDER'],content_filename)) 
-                form.content_path.data =content_filename 
-            
-         
-        if form.style.data and form.style.data.filename:
-            if allowed_file(form.style.data.filename):
-                style_filename = secure_filename(form.style.data.filename)
-                form.style.data.save(os.path.join(app.config['UPLOAD_FOLDER'], style_filename))
-                form.style_path.data = style_filename
-        
-        if content_filename and style_filename:
-            content_path = os.path.join(app.config['UPLOAD_FOLDER'],content_filename)
-            style_path = os.path.join(app.config['UPLOAD_FOLDER'],style_filename)
-            try:
-                content_image = Image.open(content_path).convert("RGB")
-                style_image = Image.open(style_path).convert("RGB")
-
-                alpha = float(form.alpha.data)
-                stylized_image = style_transfer(content_image, style_image,encoder,decoder,alpha,device)
-                
-                result_filename = 'stylized_' + content_filename
-                result_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
-                save_image(stylized_image, result_path)
-                del stylized_image
-                torch.cuda.empty_cache()
-                
-                result_image = result_filename
-            except Exception as e:
-                error = str(e)
-    
-
-    elif request.method == 'POST' and form.submit.data:
-        if not form.content.data or not form.content.data.filename:
-            error = 'Please upload content image'
-
-        elif not form.style.data or not form.style.data.filename:
-            error = 'Please upload style image'
-
-    return render_template('index.html',form=form,result_image=result_filename,content_image=content_filename,
-                            style_image=style_filename,error=error)
-        
-@app.route('/uploads/<filename>')
-def send_image(filename):
-    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+title = "Neural Style Transfer"
+description = "Upload a content image and a style image to generate stylized artwork."
 
 
-@app.route('/examples/<path:filename>')
-def send_example(filename):
-    return send_from_directory('examples',filename)
+interface = gr.Interface(
+    fn=style_transfer,
+    inputs=[
+        gr.Image(type="pil", label="Content Image"),
+        gr.Image(type="pil", label="Style Image"),
+        gr.Slider(
+            minimum=0,
+            maximum=1,
+            value=1.0,
+            step=0.1,
+            label="Style Strength"
+        )
+    ],
+    outputs=gr.Image(type="pil", label="Stylized Output"),
+    title=title,
+    description=description,
+    allow_flagging="never"
+)
 
-if __name__=='__main__':
-    from werkzeug.serving import run_simple
-    run_simple('localhost',5000,app,use_reloader=False,use_debugger=True)
+interface.launch(server_name="0.0.0.0", server_port=7860)

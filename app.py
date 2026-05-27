@@ -1,35 +1,35 @@
 import os
 import torch
-# from flask import Flask, render_template, request, redirect,url_for,send_from_directory
-# from flask_wtf import FlaskForm
-# from flask_bootstrap import Bootstrap
-# from werkzeug.utils import secure_filename
-# from wtforms import FileField, SubmitField, FloatField, HiddenField
-# from wtforms.validators import InputRequired
+from flask import Flask, render_template, request, redirect,url_for,send_from_directory
+from flask_wtf import FlaskForm
+from flask_bootstrap import Bootstrap
+from werkzeug.utils import secure_filename
+from wtforms import FileField, SubmitField, FloatField, HiddenField
+from wtforms.validators import InputRequired
 from PIL import Image
 from torchvision import transforms
-# import io
+import io
 
 # import your existing AdaIN code
 from utils.models import VGGEncoder,Decoder
 from utils.utils import adaptive_instance_normalization,calc_mean_std
 
 
-# app= Flask(__name__)
-# app.config['SECRET_KEY'] = 'shaurya'
-# app.config['UPLOAD_FOLDER'] = 'static/uploads'
-# app.config['ALLOWED_EXTENSIONS'] = {'png','jpg','jpeg'}
-# Bootstrap(app)
+app= Flask(__name__)
+app.config['SECRET_KEY'] = 'shaurya'
+app.config['UPLOAD_FOLDER'] = 'static/uploads'
+app.config['ALLOWED_EXTENSIONS'] = {'png','jpg','jpeg'}
+Bootstrap(app)
 
-# os.makedirs(app.config['UPLOAD_FOLDER'],exist_ok=True)
+os.makedirs(app.config['UPLOAD_FOLDER'],exist_ok=True)
 
-# class UploadForm(FlaskForm):
-#     content = FileField('Content Image')
-#     style = FileField('Style Image')
-#     content_path = HiddenField()
-#     style_path  = HiddenField()
-#     alpha = FloatField('Alpha', default=1.0)
-#     submit = SubmitField('Transfer Style')
+class UploadForm(FlaskForm):
+    content = FileField('Content Image')
+    style = FileField('Style Image')
+    content_path = HiddenField()
+    style_path  = HiddenField()
+    alpha = FloatField('Alpha', default=1.0)
+    submit = SubmitField('Transfer Style')
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,10 +37,11 @@ encoder = VGGEncoder("vgg_normalised.pth").to(device)
 decoder = Decoder().to(device)
 state_dict = torch.load(
     'experiment/final_exp/decoder_final.pth',
-    map_location=device
+    map_location=device,
+    weights_only=True
 )
 
-# Rename keys from net -> decoder
+
 new_state_dict = {}
 for k, v in state_dict.items():
     new_key = k.replace("net", "decoder")
@@ -51,19 +52,19 @@ decoder.load_state_dict(new_state_dict)
 encoder.eval()
 decoder.eval()
 
-# def allowed_file(filename):
-#     return '.' in filename and \
-#         filename.rsplit('.',1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
+def allowed_file(filename):
+    return '.' in filename and \
+        filename.rsplit('.',1)[1].lower() in app.config['ALLOWED_EXTENSIONS']
 
 
 def style_transfer(content_image, style_image,encoder,decoder,alpha,device):
     content_transform = transforms.Compose([
-        transforms.Resize(256),
+        transforms.Resize(128),
         transforms.ToTensor()
     ])
 
     style_transform = transforms.Compose([
-        transforms.Resize(256),
+        transforms.Resize(128),
         transforms.ToTensor()
     ])
     
@@ -91,104 +92,66 @@ def save_image(image,path):
 
 
 
-# @app.route('/',methods=['GET','POST'])
-# def index():
-#     form = UploadForm()
-#     result_image = None
-#     result_filename = None
-#     content_filename = form.content_path.data
-#     style_filename = form.style_path.data
-#     error = None
-#     if form.validate_on_submit():
-#         if form.content.data and form.content.data.filename:
-#             if allowed_file(form.content.data.filename):
-#                 content_filename = secure_filename(form.content.data.filename)
-#                 form.content.data.save(os.path.join(app.config['UPLOAD_FOLDER'],content_filename)) 
-#                 form.content_path.data =content_filename 
+@app.route('/',methods=['GET','POST'])
+def index():
+    form = UploadForm()
+    result_image = None
+    result_filename = None
+    content_filename = form.content_path.data
+    style_filename = form.style_path.data
+    error = None
+    if form.validate_on_submit():
+        if form.content.data and form.content.data.filename:
+            if allowed_file(form.content.data.filename):
+                content_filename = secure_filename(form.content.data.filename)
+                form.content.data.save(os.path.join(app.config['UPLOAD_FOLDER'],content_filename)) 
+                form.content_path.data =content_filename 
             
          
-#         if form.style.data and form.style.data.filename:
-#             if allowed_file(form.style.data.filename):
-#                 style_filename = secure_filename(form.style.data.filename)
-#                 form.style.data.save(os.path.join(app.config['UPLOAD_FOLDER'], style_filename))
-#                 form.style_path.data = style_filename
+        if form.style.data and form.style.data.filename:
+            if allowed_file(form.style.data.filename):
+                style_filename = secure_filename(form.style.data.filename)
+                form.style.data.save(os.path.join(app.config['UPLOAD_FOLDER'], style_filename))
+                form.style_path.data = style_filename
         
-#         if content_filename and style_filename:
-#             content_path = os.path.join(app.config['UPLOAD_FOLDER'],content_filename)
-#             style_path = os.path.join(app.config['UPLOAD_FOLDER'],style_filename)
-#             try:
-#                 content_image = Image.open(content_path).convert("RGB")
-#                 style_image = Image.open(style_path).convert("RGB")
+        if content_filename and style_filename:
+            content_path = os.path.join(app.config['UPLOAD_FOLDER'],content_filename)
+            style_path = os.path.join(app.config['UPLOAD_FOLDER'],style_filename)
+            try:
+                content_image = Image.open(content_path).convert("RGB")
+                style_image = Image.open(style_path).convert("RGB")
 
-#                 alpha = float(form.alpha.data)
-#                 stylized_image = style_transfer(content_image, style_image,encoder,decoder,alpha,device)
+                alpha = float(form.alpha.data)
+                stylized_image = style_transfer(content_image, style_image,encoder,decoder,alpha,device)
                 
-#                 result_filename = 'stylized_' + content_filename
-#                 result_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
-#                 save_image(stylized_image, result_path)
+                result_filename = 'stylized_' + content_filename
+                result_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
+                save_image(stylized_image, result_path)
                 
-#                 result_image = result_filename
-#             except Exception as e:
-#                 error = str(e)
+                result_image = result_filename
+            except Exception as e:
+                error = str(e)
     
 
-#     elif request.method == 'POST' and form.submit.data:
-#         if not form.content.data or not form.content.data.filename:
-#             error = 'Please upload content image'
+    elif request.method == 'POST' and form.submit.data:
+        if not form.content.data or not form.content.data.filename:
+            error = 'Please upload content image'
 
-#         elif not form.style.data or not form.style.data.filename:
-#             error = 'Please upload style image'
+        elif not form.style.data or not form.style.data.filename:
+            error = 'Please upload style image'
 
-#     return render_template('index.html',form=form,result_image=result_filename,content_image=content_filename,
-#                             style_image=style_filename,error=error)
+    return render_template('index.html',form=form,result_image=result_filename,content_image=content_filename,
+                            style_image=style_filename,error=error)
         
-# @app.route('/uploads/<filename>')
-# def send_image(filename):
-#     return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+@app.route('/uploads/<filename>')
+def send_image(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 
-# @app.route('/examples/<path:filename>')
-# def send_example(filename):
-#     return send_from_directory('examples',filename)
+@app.route('/examples/<path:filename>')
+def send_example(filename):
+    return send_from_directory('examples',filename)
 
-# if __name__=='__main__':
-#     from werkzeug.serving import run_simple
-#     run_simple('localhost',5000,app,use_reloader=False,use_debugger=True)
-
-
-
-
-
-import gradio as gr
-
-def transfer(content, style, alpha):
-
-    stylized_image = style_transfer(
-        content,
-        style,
-        encoder,
-        decoder,
-        alpha,
-        device
-    )
-
-    stylized_image = stylized_image.cpu()
-    stylized_image = stylized_image.squeeze()
-    stylized_image = stylized_image.clamp(0,1)
-    stylized_image = transforms.ToPILImage()(stylized_image)
-
-    return stylized_image
-
-
-demo = gr.Interface(
-    fn=transfer,
-    inputs=[
-        gr.Image(type="pil", label="Content Image"),
-        gr.Image(type="pil", label="Style Image"),
-        gr.Slider(0, 1, value=1.0, step=0.1, label="Style Strength")
-    ],
-    outputs=gr.Image(type="pil"),
-    title="Neural Style Transfer Tool"
-)
-
-demo.launch()
+if __name__=='__main__':
+    from werkzeug.serving import run_simple
+    run_simple('localhost',5000,app,use_reloader=False,use_debugger=True)

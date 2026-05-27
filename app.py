@@ -71,7 +71,7 @@ def style_transfer(content_image, style_image,encoder,decoder,alpha,device):
     content_image = content_transform(content_image).unsqueeze(0).to(device)
     style_image = style_transform(style_image).unsqueeze(0).to(device)
 
-    with torch.no_grad():
+    with torch.inference_mode():
         content_feats = encoder(content_image,True)
         style_feats = encoder(style_image,True)
 
@@ -80,6 +80,10 @@ def style_transfer(content_image, style_image,encoder,decoder,alpha,device):
         stylized_feats = alpha * stylized_feats + (1-alpha) * content_feats
 
         stylized_image = decoder(stylized_feats)
+
+        del content_feats
+        del style_feats
+        del stylized_feats
     
     return stylized_image
 
@@ -127,6 +131,8 @@ def index():
                 result_filename = 'stylized_' + content_filename
                 result_path = os.path.join(app.config['UPLOAD_FOLDER'], result_filename)
                 save_image(stylized_image, result_path)
+                del stylized_image
+                torch.cuda.empty_cache()
                 
                 result_image = result_filename
             except Exception as e:
